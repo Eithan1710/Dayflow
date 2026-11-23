@@ -3,7 +3,7 @@
 import {
   addDays, addMonths, dayDiff, endOfMonth, monthGrid, monthKey, startOfMonth, todayKey,
 } from '../lib/dates.js';
-import { PERIOD_IDS } from '../lib/periods.js';
+import { PERIOD_IDS, periodForTime } from '../lib/periods.js';
 import { isMultiDay, occursOn } from '../lib/recurrence.js';
 import { STORAGE_PREFIX } from '../config.js';
 import { AppError, newId } from './schema.js';
@@ -401,6 +401,34 @@ export function createStore(backend, hooks) {
     });
   }
 
+  /**
+   * Moves an occurrence into another part of the day (drag & drop).
+   * Exact times are kept only if they still fall inside the new period.
+   * @returns {{ timeCleared: boolean, undo: (() => any) | null } | null} null when nothing changed
+   */
+  function moveToPeriod(inst, period, scope = 'all') {
+    const a = inst.a;
+    if (!a.all_day && a.period === period) return null;
+    const keepTime = !!a.start_time && periodForTime(a.start_time) === period;
+    const patch = { period, all_day: false, start_time: keepTime ? a.start_time : null, end_time: keepTime ? a.end_time : null };
+    const timeCleared = !!a.start_time && !keepTime;
+    if (inst.recurring && scope === 'this') {
+      void detachOccurrence(inst, patch);
+      return { timeCleared, undo: null };
+    }
+    const before = { period: a.period, all_day: !!a.all_day, start_time: a.start_time || null, end_time: a.end_time || null };
+    void updateActivity(a.id, patch);
+    return { timeCleared, undo: () => updateActivity(a.id, before) };
+  }
+
+  /** Puts a task on `date` in `period` (drag & drop). Returns an undo function, or null if unchanged. */
+  function moveTaskToPeriod(t, date, period) {
+    if (t.scheduled_date === date && t.period === period) return null;
+    const before = { scheduled_date: t.scheduled_date || null, period: t.period || null };
+    void updateTask(t.id, { scheduled_date: date, period });
+    return () => updateTask(t.id, before);
+  }
+
   function duplicateActivity(inst) {
     const { id, created_at, ...rest } = inst.a;
     const draft = inst.recurring
@@ -527,8 +555,8 @@ export function createStore(backend, hooks) {
     init, signIn, signOut, loadAll, refresh, ensureLoaded,
     setDate, setView, setTab, step, goToday, openDay,
     instancesOn, dayData, category, colorOf,
-    createActivity, updateActivity, detachOccurrence, toggleActivity, moveInstance, duplicateActivity, deleteActivity,
-    createTask, updateTask, toggleTask, deleteTask,
+    createActivity, updateActivity, detachOccurrence, toggleActivity, moveInstance, moveToPeriod, duplicateActivity, deleteActivity,
+    createTask, updateTask, toggleTask, deleteTask, moveTaskToPeriod,
     saveCategory, deleteCategory, setTheme, changePassword,
     get pending() { return pending; },
   };

@@ -84,7 +84,10 @@ test('daily / weekly / monthly / yearly recurrence', () => {
   const yearly = { ...base, start_date: '2024-02-29', repeat_freq: 'yearly' };
   assert.ok(occursOn(yearly, '2028-02-29'));
   assert.ok(!occursOn(yearly, '2026-02-28'));
-  assert.equal(describeRepeat(biweekly), 'כל שבועיים');
+  assert.equal(describeRepeat(biweekly), 'כל שבועיים, יום שני');
+  assert.equal(describeRepeat({ ...base, repeat_freq: 'weekly', repeat_weekdays: [5, 0, 2] }), 'בימים א׳ ג׳ ו׳');
+  assert.equal(describeRepeat({ ...base, repeat_freq: 'weekly', repeat_weekdays: [0] }), 'כל יום ראשון');
+  assert.equal(describeRepeat({ ...base, repeat_freq: 'daily' }), 'כל יום');
 });
 
 test('username maps to the same e-mail the database account was created with', () => {

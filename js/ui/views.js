@@ -9,6 +9,7 @@ import { h, haptic, ltr } from './dom.js';
 import { icon } from './icons.js';
 import { openActivitySheet, openCategorySheet, openCreateSheet, openPasswordSheet, openTaskSheet, segmented } from './forms.js';
 import { toast } from './overlay.js';
+import { DRAG_HINT_KEY } from './drag.js';
 
 /** @typedef {ReturnType<typeof import('../data/store.js').createStore>} Store */
 /** @typedef {import('../data/store.js').Instance} Instance */
@@ -74,7 +75,9 @@ function activityCard(store, inst, opt = {}) {
   if (inst.recurring) meta.push(h('span', { class: 'meta', title: describeRepeat(a) }, icon('repeat', 15), describeRepeat(a)));
   if (cat) meta.push(h('span', { class: 'meta meta-cat' }, h('span', { class: 'dot', dataset: { color: cat.color } }), cat.name));
 
-  return h('article', { class: 'card' + (inst.completed ? ' is-done' : '') + (a.priority === 3 ? ' is-important' : ''), dataset: { color } },
+  // Single-day items can be dragged to another part of the day (see ui/drag.js).
+  const dataset = inst.spanCount > 1 ? { color } : { color, drag: 'activity', key: inst.key };
+  return h('article', { class: 'card' + (inst.completed ? ' is-done' : '') + (a.priority === 3 ? ' is-important' : ''), dataset },
     h('button', {
       type: 'button', class: 'check', role: 'checkbox', 'aria-checked': String(inst.completed),
       'aria-label': `${a.title}: ${inst.completed ? 'בוצע' : 'לא בוצע'}`,
@@ -104,7 +107,7 @@ function taskRow(store, t, opt = {}) {
   if (cat) meta.push(h('span', { class: 'meta meta-cat' }, h('span', { class: 'dot', dataset: { color: cat.color } }), cat.name));
   if (t.priority === 3) meta.push(h('span', { class: 'meta is-high' }, 'עדיפות גבוהה'));
 
-  return h('div', { class: 'task' + (t.completed ? ' is-done' : '') },
+  return h('div', { class: 'task' + (t.completed ? ' is-done' : ''), dataset: { drag: 'task', id: t.id } },
     h('button', {
       type: 'button', class: 'box', role: 'checkbox', 'aria-checked': String(!!t.completed),
       'aria-label': `${t.title}: ${t.completed ? 'בוצעה' : 'לא בוצעה'}`,
@@ -173,11 +176,29 @@ export function dayView(store) {
         tasks.length ? h('div', { class: 'task-list' }, tasks.map((t) => taskRow(store, t, { showDates: false }))) : null));
   });
 
+  const draggable = PERIODS.some((p) => data.byPeriod[p.id].length || data.tasksByPeriod[p.id].length) || data.looseTasks.length;
   return h('div', { class: 'day' },
     s.loadError ? errorBanner(store) : null,
+    draggable ? dragHint() : null,
     top,
     total === 0 ? h('p', { class: 'empty-hint' }, k < s.today ? 'לא היה כלום מתוכנן ביום הזה.' : 'היום פנוי. הקישו על חלק ביום כדי להוסיף משהו.') : null,
     h('ol', { class: 'timeline' }, periods));
+}
+
+/** One-time tip that items can be dragged between parts of the day. */
+function dragHint() {
+  let seen = '1';
+  try { seen = localStorage.getItem(DRAG_HINT_KEY) || ''; } catch { /* ignore */ }
+  if (seen) return null;
+  const touch = window.matchMedia('(pointer: coarse)').matches;
+  const tip = h('div', { class: 'tip', role: 'note' },
+    icon('sparkle', 17),
+    h('span', null, touch ? 'לחיצה ארוכה על פעילות וגרירה מעבירה אותה לחלק אחר של היום.' : 'אפשר לגרור פעילות לחלק אחר של היום.'),
+    h('button', {
+      type: 'button', class: 'icon-btn', 'aria-label': 'הבנתי',
+      onClick: () => { try { localStorage.setItem(DRAG_HINT_KEY, '1'); } catch { /* ignore */ } tip.remove(); },
+    }, icon('x', 16)));
+  return tip;
 }
 
 function errorBanner(store) {

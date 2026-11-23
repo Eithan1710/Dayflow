@@ -1,4 +1,4 @@
-import { dayDiff, parseKey, startOfWeek, weekday } from './dates.js';
+import { DAY_LETTERS, DAY_NAMES, dayDiff, parseKey, startOfWeek, weekday } from './dates.js';
 
 /**
  * @typedef {Object} Activity
@@ -25,9 +25,9 @@ import { dayDiff, parseKey, startOfWeek, weekday } from './dates.js';
  */
 
 export const REPEAT_OPTIONS = [
-  { id: '', label: 'ללא' },
+  { id: '', label: 'ללא', formLabel: 'לא חוזר' },
   { id: 'daily', label: 'כל יום' },
-  { id: 'weekly', label: 'כל שבוע' },
+  { id: 'weekly', label: 'כל שבוע', formLabel: 'ימים בשבוע' },
   { id: 'monthly', label: 'כל חודש' },
   { id: 'yearly', label: 'כל שנה' },
 ];
@@ -72,6 +72,13 @@ export function isMultiDay(a) {
 export function describeRepeat(a) {
   if (!a.repeat_freq) return '';
   const n = a.repeat_interval || 1;
+  if (a.repeat_freq === 'weekly') {
+    const days = [...(a.repeat_weekdays && a.repeat_weekdays.length ? a.repeat_weekdays : [weekday(a.start_date)])].sort();
+    const every = n === 1 ? '' : n === 2 ? 'כל שבועיים, ' : `כל ${n} שבועות, `;
+    if (days.length === 7) return n === 1 ? 'כל יום' : every + 'כל הימים';
+    if (days.length === 1) return n === 1 ? `כל יום ${DAY_NAMES[days[0]]}` : every + `יום ${DAY_NAMES[days[0]]}`;
+    return every + 'בימים ' + days.map((d) => DAY_LETTERS[d]).join(' ');
+  }
   const base = {
     daily: n === 1 ? 'כל יום' : `כל ${n} ימים`,
     weekly: n === 1 ? 'כל שבוע' : n === 2 ? 'כל שבועיים' : `כל ${n} שבועות`,

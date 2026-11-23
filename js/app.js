@@ -3,6 +3,7 @@ import { STORAGE_PREFIX } from './config.js';
 import { createStore } from './data/store.js';
 import { h, haptic, reducedMotion } from './ui/dom.js';
 import { icon } from './ui/icons.js';
+import { attachDayDrag } from './ui/drag.js';
 import { openCreateSheet } from './ui/forms.js';
 import { toast } from './ui/overlay.js';
 import {
@@ -60,6 +61,7 @@ async function main() {
     }, icon('plus', 26), h('span', { class: 'fab-label' }, 'הוספה'));
     const el = h('div', { class: 'shell' }, nav, main, fab);
     attachSwipe(main);
+    attachDayDrag(main, store);
     return { el, main, tabButtons, fab };
   }
 
@@ -73,8 +75,10 @@ async function main() {
       x0 = e.touches[0].clientX; y0 = e.touches[0].clientY; t0 = Date.now();
       active = true; decided = false; horizontal = false;
     }, { passive: true });
+    const dragging = () => document.documentElement.classList.contains('is-dragging');
     main.addEventListener('touchmove', (e) => {
       if (!active) return;
+      if (dragging()) { active = false; return; }
       const dx = e.touches[0].clientX - x0, dy = e.touches[0].clientY - y0;
       if (!decided && (Math.abs(dx) > 10 || Math.abs(dy) > 10)) {
         decided = true;
@@ -87,6 +91,7 @@ async function main() {
     }, { passive: true });
     const end = (e) => {
       if (!active) return;
+      if (dragging()) { active = false; return; }
       active = false;
       const content = /** @type {HTMLElement|null} */ (main.querySelector('.view-content'));
       if (content) content.style.transform = '';

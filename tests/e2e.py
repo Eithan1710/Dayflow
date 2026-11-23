@@ -4,7 +4,7 @@ Run:  python3 -m http.server 5173 --bind 127.0.0.1   (in the repo root)
       python3 tests/e2e.py [--shots DIR]
 Requires Playwright for Python and a Chrome/Chromium binary (CHROME env var).
 """
-import os, sys, json
+import os, re, sys, json
 from playwright.sync_api import sync_playwright, expect
 
 BASE = os.environ.get('BASE', 'http://127.0.0.1:5173/?mock')
@@ -53,6 +53,29 @@ def swipe(page, dx):
       el.dispatchEvent(new TouchEvent('touchmove', { touches: [mk(x + dx)], changedTouches: [mk(x + dx)], bubbles: true }));
       el.dispatchEvent(new TouchEvent('touchend', { touches: [], changedTouches: [mk(x + dx)], bubbles: true }));
     }""", dx)
+
+
+def touch_drag(page, src_selector, dst_selector, hold_ms=450):
+    """Long-press on src, then drag to the centre of dst, using real TouchEvents."""
+    page.locator(src_selector).first.evaluate("el => el.scrollIntoView({ block: 'center' })")
+    src = page.locator(src_selector).first.bounding_box()
+    dst = page.locator(dst_selector).first.bounding_box()
+    sx, sy = src['x'] + src['width'] / 2, src['y'] + src['height'] / 2
+    dx, dy = dst['x'] + dst['width'] / 2, dst['y'] + dst['height'] / 2
+    fire = """([type, x, y]) => {
+      window.__dragTarget ||= document.elementFromPoint(x, y);
+      const el = window.__dragTarget;
+      const t = new Touch({ identifier: 7, target: el, clientX: x, clientY: y });
+      const ev = new TouchEvent(type, { touches: type === 'touchend' ? [] : [t], changedTouches: [t], bubbles: true, cancelable: true });
+      el.dispatchEvent(ev);
+      if (type === 'touchend') window.__dragTarget = null;
+    }"""
+    page.evaluate(fire, ['touchstart', sx, sy])
+    page.wait_for_timeout(hold_ms)
+    for i in range(1, 11):
+        page.evaluate(fire, ['touchmove', sx + (dx - sx) * i / 10, sy + (dy - sy) * i / 10])
+        page.wait_for_timeout(16)
+    page.evaluate(fire, ['touchend', dx, dy])
 
 def sheet(page):
     return page.locator('.sheet-wrap.is-open .sheet').last
@@ -167,6 +190,51 @@ with sync_playwright() as p:
         expect(page.locator('.period[data-period="noon"] .card')).to_have_count(1)
     _()
 
+    @step('drag & drop (touch long-press): gym from evening to night, undo')
+    def _():
+        expect(page.locator('.tip')).to_be_visible()
+        touch_drag(page, '.period[data-period="evening"] .card .card-main', '.period[data-period="night"] .period-head')
+        expect(page.locator('.period[data-period="night"] .card-title')).to_have_text('חדר כושר')
+        expect(page.locator('.period[data-period="evening"] .card')).to_have_count(0)
+        expect(page.locator('.toast')).to_contain_text('הועבר ללילה')
+        expect(page.locator('.toast')).to_contain_text('השעה המדויקת הוסרה')
+        expect(page.locator('.sheet-wrap')).to_have_count(0)  # no edit sheet opened by the drop
+        assert state(page, "[...s.state.activities.values()].find(a => a.title === 'חדר כושר').start_time") is None
+        expect(page.locator('.tip')).to_have_count(0)  # tip goes away after the first drag
+        page.locator('.toast-action').click()
+        expect(page.locator('.period[data-period="evening"] .card .meta').first).to_have_text('18:30–19:45')
+    _()
+
+    @step('a short tap still opens the card, a quick swipe does not drag')
+    def _():
+        page.locator('.period[data-period="evening"] .card-main').click()
+        expect(sheet(page).locator('.sheet-title')).to_have_text('עריכת פעילות')
+        sheet(page).get_by_role('button', name='סגירה', exact=True).click()
+        expect(page.locator('.sheet-wrap')).to_have_count(0)
+        touch_drag(page, '.period[data-period="evening"] .card .card-main', '.period[data-period="night"] .period-head', hold_ms=60)
+        expect(page.locator('.period[data-period="evening"] .card')).to_have_count(1)
+    _()
+
+    @step('drag & drop with the mouse: morning card to noon and back')
+    def _():
+        page.locator('.period[data-period="morning"] .card-main').evaluate("el => el.scrollIntoView({ block: 'center' })")
+        src = page.locator('.period[data-period="morning"] .card-main').bounding_box()
+        dst = page.locator('.period[data-period="noon"] .period-head').bounding_box()
+        page.mouse.move(src['x'] + 40, src['y'] + 20)
+        page.mouse.down()
+        page.mouse.move(src['x'] + 40, src['y'] + 60, steps=4)
+        expect(page.locator('.drag-ghost')).to_have_count(1)
+        page.mouse.move(dst['x'] + 100, dst['y'] + 20, steps=10)
+        expect(page.locator('.period[data-period="noon"]')).to_have_class(re.compile('is-drop-target'))
+        shot(page, '14-dragging')
+        page.mouse.up()
+        expect(page.locator('.period[data-period="noon"] .card-title').filter(has_text='עבודה על הפרויקט')).to_have_count(1)
+        expect(page.locator('.sheet-wrap')).to_have_count(0)
+        expect(page.locator('.drag-ghost')).to_have_count(0)
+        page.locator('.toast-action').click()
+        expect(page.locator('.period[data-period="morning"] .card-title')).to_have_text('עבודה על הפרויקט')
+    _()
+
     @step('all-day and multi-day activity')
     def _():
         page.locator('.fab').click()
@@ -184,21 +252,43 @@ with sync_playwright() as p:
         no_overflow(page, 'day filled')
     _()
 
-    @step('recurring weekly activity appears next week, not on other days')
+    @step('recurring on chosen weekdays (Sun, Tue, Fri) from the main form')
     def _():
         page.locator('.period[data-period="night"] .period-head').click()
         page.keyboard.type('ריצה')
-        sheet(page).get_by_role('button', name='פרטים נוספים', exact=True).click()
-        sheet(page).get_by_role('radio', name='כל שבוע', exact=True).click()
+        sheet(page).get_by_role('radio', name='ימים בשבוע', exact=True).click()
+        expect(sheet(page).get_by_text('באילו ימים?')).to_be_visible()
+        # Sun, Tue, Fri (+ today, so later steps find it on today's page)
+        wd = page.evaluate("new Date().getDay()")
+        target = sorted({0, 2, 5, wd})
+        letters = ['א׳', 'ב׳', 'ג׳', 'ד׳', 'ה׳', 'ו׳', 'ש׳']
+        for i in range(7):
+            btn = sheet(page).get_by_role('button', name=f'יום {letters[i]}', exact=True)
+            if (btn.get_attribute('aria-pressed') == 'true') != (i in target):
+                btn.click()
+        shot(page, '15-repeat-weekdays')
         sheet(page).get_by_role('button', name='הוספה', exact=True).click()
-        expect(page.locator('.period[data-period="night"] .card .card-title')).to_have_text('ריצה')
-        page.evaluate("window.__dayflow.setDate(window.__dayflow.state.date.replace(/\\d+$/, d => d))")
-        page.evaluate("(() => { const s = window.__dayflow; const [y,m,d] = s.state.date.split('-').map(Number); const n = new Date(y, m-1, d+7); const p = x => String(x).padStart(2,'0'); s.setDate(`${n.getFullYear()}-${p(n.getMonth()+1)}-${p(n.getDate())}`); })()")
-        expect(page.locator('.period[data-period="night"] .card .card-title')).to_have_text('ריצה')
-        page.locator('.nav-btns').get_by_role('button', name='היום הבא', exact=True).click()
-        expect(page.locator('.period[data-period="night"] .card')).to_have_count(0)
+        days = state(page, "[...s.state.activities.values()].find(a => a.title === 'ריצה').repeat_weekdays")
+        assert days == target, days
+        # check the next 7 days: present exactly on Sun, Tue, Fri
+        seen = page.evaluate("""() => { const s = window.__dayflow; const out = [];
+          for (let i = 0; i < 7; i++) { const d = new Date(); d.setDate(d.getDate() + i);
+            const p = n => String(n).padStart(2, '0'); const k = `${d.getFullYear()}-${p(d.getMonth()+1)}-${p(d.getDate())}`;
+            if (s.instancesOn(k).some(x => x.a.title === 'ריצה')) out.push(d.getDay()); }
+          return out.sort(); }""")
+        assert seen == target, seen
+        expect(page.locator('.card').filter(has_text='ריצה').locator('.meta').filter(has_text='בימים')).to_have_text('בימים ' + ' '.join(letters[i] for i in target))
+    _()
+
+    @step('week view shows the recurring days')
+    def _():
+        page.get_by_role('radio', name='שבוע', exact=True).click()
+        page.locator('.nav-btns').get_by_role('button', name='השבוע הבא', exact=True).click()
+        titles = page.locator('.week-day').evaluate_all("els => els.map(e => [...e.querySelectorAll('.agenda-title')].some(t => t.textContent.includes('ריצה')))")
+        wd = page.evaluate("new Date().getDay()")
+        assert titles == [i in {0, 2, 5, wd} for i in range(7)], titles
+        page.get_by_role('radio', name='יום', exact=True).click()
         page.locator('.nav-btns').get_by_role('button', name='היום', exact=True).click()
-        expect(page.locator('.badge.is-today')).to_be_visible()
     _()
 
     @step('mark complete and undo complete')

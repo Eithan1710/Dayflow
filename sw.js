@@ -1,6 +1,6 @@
 // Dayflow service worker: app shell + CDN library cached, API calls always live.
 // Caches are prefixed "dayflow-" because other apps share this origin.
-const VERSION = 'dayflow-v1';
+const VERSION = 'dayflow-v2';
 const SHELL = [
   './',
   './index.html',
@@ -20,6 +20,7 @@ const SHELL = [
   './js/ui/fields.js',
   './js/ui/forms.js',
   './js/ui/views.js',
+  './js/ui/drag.js',
   './icons/mark.svg',
   './icons/icon-192.png',
   './icons/apple-touch-icon.png',

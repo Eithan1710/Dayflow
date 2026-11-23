@@ -641,7 +641,7 @@ bdi { unicode-bidi: isolate; }
 .time-sep { color: var(--muted); font-size: 15px; }
 .repeat-extra { display: grid; gap: 4px; margin-top: 12px; }
 .day-toggles { display: grid; grid-template-columns: repeat(7, 1fr); gap: 6px; }
-.day-toggle { height: 42px; border-radius: 12px; background: var(--surface-2); font-weight: 650; font-size: 15px; color: var(--ink-2); }
+.day-toggle { display: grid; place-items: center; text-align: center; height: 42px; border-radius: 12px; background: var(--surface-2); font-weight: 650; font-size: 15px; color: var(--ink-2); }
 .day-toggle.is-on { background: var(--accent); color: var(--accent-ink); }
 .swatches { display: flex; flex-wrap: wrap; gap: 10px; }
 .swatch {
@@ -832,3 +832,39 @@ bdi { unicode-bidi: isolate; }
   .mitem-text { display: block; font-size: 12.5px; font-weight: 550; text-align: start; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .mmore { align-self: flex-start; padding-inline-start: 6px; }
 }
+
+/* ---------- drag & drop (day view) ---------- */
+[data-drag] { -webkit-user-select: none; user-select: none; -webkit-touch-callout: none; }
+.drag-ghost {
+  position: fixed; left: 0; top: 0; z-index: 70;
+  margin: 0;
+  pointer-events: none;
+  will-change: transform;
+  opacity: 0.97;
+  box-shadow: 0 22px 44px -14px rgba(10, 14, 30, 0.42), 0 4px 10px rgba(10, 14, 30, 0.1);
+}
+.task.drag-ghost { background: var(--surface); border: 1px solid var(--line); border-radius: 14px; }
+.is-drag-source { opacity: 0.28; }
+html.is-dragging, html.is-dragging * { cursor: grabbing !important; }
+html.is-dragging .period {
+  margin-inline: -6px; padding-inline: 6px;
+  border-radius: 20px;
+  transition: background 0.15s;
+}
+html.is-dragging .period.is-drop-target { background: color-mix(in srgb, var(--pc) 13%, transparent); }
+html.is-dragging .period.is-drop-target .node {
+  background: var(--pc); color: #fff;
+  box-shadow: 0 0 0 5px color-mix(in srgb, var(--pc) 20%, transparent);
+}
+html.is-dragging .period-head.is-action:active { background: transparent; }
+@media (min-width: 960px) { [data-drag] .card-main, [data-drag] .task-main { cursor: grab; } }
+.tip {
+  display: flex; align-items: center; gap: 8px;
+  padding: 6px 6px 6px 12px; padding-inline-start: 12px; padding-inline-end: 4px;
+  border-radius: var(--radius);
+  background: var(--accent-soft); color: var(--ink-2);
+  font-size: 14.5px;
+}
+.tip > .icon { color: var(--accent); }
+.tip > span { flex: 1; }
+.tip .icon-btn { min-width: 36px; height: 36px; }

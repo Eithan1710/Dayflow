@@ -205,3 +205,58 @@ test('deleting a category clears it from items locally', async () => {
   assert.equal(store.state.activities.get(id).category_id, null);
   assert.equal(store.state.categories.length, 0);
 });
+
+test('drag to another period: keeps fitting times, clears others, undo restores', async () => {
+  const id = store.createActivity(draft({ title: 'חדר כושר', period: 'evening', start_time: '18:30', end_time: '19:30' }));
+  await flush();
+  const inst = store.instancesOn('2026-11-23')[0];
+  assert.equal(store.moveToPeriod(inst, 'evening'), null); // same period: nothing to do
+  const res = store.moveToPeriod(inst, 'night');
+  await flush();
+  assert.equal(res.timeCleared, true);
+  const a = store.state.activities.get(id);
+  assert.equal(a.period, 'night');
+  assert.equal(a.start_time, null);
+  assert.equal(backend.db.activities.get(id).period, 'night');
+  await res.undo();
+  assert.equal(store.state.activities.get(id).period, 'evening');
+  assert.equal(store.state.activities.get(id).start_time, '18:30');
+
+  const id2 = store.createActivity(draft({ title: 'ערב', period: 'afternoon', start_time: '19:00' }));
+  await flush();
+  const r2 = store.moveToPeriod(store.instancesOn('2026-11-23').find((i) => i.a.id === id2), 'evening');
+  assert.equal(r2.timeCleared, false);
+  assert.equal(store.state.activities.get(id2).start_time, '19:00');
+});
+
+test('drag an all-day item into a period', async () => {
+  const id = store.createActivity(draft({ all_day: true, period: null }));
+  await flush();
+  store.moveToPeriod(store.instancesOn('2026-11-23')[0], 'noon');
+  await flush();
+  assert.equal(store.state.activities.get(id).all_day, false);
+  assert.equal(store.dayData('2026-11-23').byPeriod.noon.length, 1);
+});
+
+test('drag a recurring occurrence: this one only vs whole series', async () => {
+  const id = store.createActivity(draft({ title: 'ריצה', period: 'morning', repeat_freq: 'daily' }));
+  await flush();
+  store.moveToPeriod(store.instancesOn('2026-11-23')[0], 'evening', 'this');
+  await flush();
+  assert.equal(store.dayData('2026-11-23').byPeriod.evening.length, 1);
+  assert.equal(store.dayData('2026-11-24').byPeriod.morning.length, 1); // rest of series unchanged
+  store.moveToPeriod(store.instancesOn('2026-11-24')[0], 'night', 'all');
+  await flush();
+  assert.equal(store.state.activities.get(id).period, 'night');
+});
+
+test('drag a task into a period schedules it on that day', async () => {
+  const id = store.createTask({ title: 'דחוף', due_date: '2026-11-20' });
+  await flush();
+  const undo = store.moveTaskToPeriod(store.state.tasks.get(id), '2026-11-23', 'noon');
+  await flush();
+  assert.equal(store.dayData('2026-11-23').tasksByPeriod.noon.length, 1);
+  assert.equal(backend.db.tasks.get(id).scheduled_date, '2026-11-23');
+  await undo();
+  assert.equal(store.state.tasks.get(id).scheduled_date, null);
+});

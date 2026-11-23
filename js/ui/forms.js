@@ -187,16 +187,17 @@ function activityForm(store, o) {
   const endDateRow = field('נמשך כמה ימים? עד:', endDate.el, { icon: 'calendar' });
   endDateRow.hidden = !!d.repeat_freq;
 
-  const weekdayChips = weekdayPicker(d);
+  const weekdayChips = weekdayPicker(d, () => { repeatTouched = true; });
   const untilField = dateField({
     label: 'חוזר עד', value: d.repeat_until, allowNone: true, noneLabel: 'ללא סוף',
     onChange: (v) => { d.repeat_until = v; repeatTouched = true; },
   });
+  const weekdaysRow = h('div', { class: 'field-sub' }, h('span', { class: 'field-sublabel' }, 'באילו ימים?'), weekdayChips.el);
   const repeatExtra = h('div', { class: 'repeat-extra' },
-    weekdayChips.el,
-    h('div', { class: 'field-sub' }, h('span', { class: 'field-sublabel' }, 'עד מתי'), untilField.el));
+    weekdaysRow,
+    h('div', { class: 'field-sub' }, h('span', { class: 'field-sublabel' }, 'עד מתי?'), untilField.el));
   const repeatChips = chips({
-    label: 'חזרה', value: d.repeat_freq, options: REPEAT_OPTIONS.map((r) => ({ value: r.id, label: r.label })), scroll: true,
+    label: 'חוזר?', value: d.repeat_freq, options: REPEAT_OPTIONS.map((r) => ({ value: r.id, label: r.formLabel || r.label })), scroll: true,
     onChange: (v) => {
       repeatTouched = true;
       d.repeat_freq = v || '';
@@ -206,7 +207,7 @@ function activityForm(store, o) {
   });
   function paintRepeat() {
     repeatExtra.hidden = !d.repeat_freq;
-    weekdayChips.el.hidden = d.repeat_freq !== 'weekly';
+    weekdaysRow.hidden = d.repeat_freq !== 'weekly';
     endDateRow.hidden = !!d.repeat_freq;
     weekdayChips.syncDefault();
   }
@@ -217,10 +218,9 @@ function activityForm(store, o) {
   const loc = textLine(d.location, 'איפה?', (v) => { d.location = v; }, 'מיקום');
   const notes = textArea(d.description, 'הערות', (v) => { d.description = v; });
 
-  const hasAdvanced = !!(d.start_time || d.end_date || d.repeat_freq || d.location || d.priority || d.color || d.description);
+  const hasAdvanced = !!(d.start_time || d.end_date || d.location || d.priority || d.color || d.description);
   const more = disclosure('פרטים נוספים', h('div', { class: 'form-stack' },
     timeRow,
-    field('חזרה', h('div', null, repeatChips.el, repeatExtra), { icon: 'repeat' }),
     endDateRow,
     field('מיקום', loc, { icon: 'pin' }),
     field('עדיפות', prio.el, { icon: 'flag' }),
@@ -232,6 +232,7 @@ function activityForm(store, o) {
     titleEl,
     field('מתי ביום', periodChips.el),
     field('יום', dateChips.el),
+    field('חוזר?', h('div', null, repeatChips.el, repeatExtra), { icon: 'repeat' }),
     store.state.categories.length ? field('קטגוריה', cats.el) : null,
     more,
   );
@@ -301,7 +302,7 @@ function activityForm(store, o) {
 }
 
 /** Weekday toggles for weekly repeats. */
-function weekdayPicker(d) {
+function weekdayPicker(d, onChange = () => {}) {
   const buttons = DAY_LETTERS.map((label, i) => {
     const b = h('button', {
       type: 'button', class: 'day-toggle', 'aria-pressed': 'false', 'aria-label': `יום ${label}`,
@@ -310,6 +311,7 @@ function weekdayPicker(d) {
         if (set.has(i)) { if (set.size > 1) set.delete(i); } else set.add(i);
         d.repeat_weekdays = [...set].sort();
         paint();
+        onChange();
         haptic();
       },
     }, label);
