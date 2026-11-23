@@ -1,0 +1,16 @@
+{
+  "name": "dayflow",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Dayflow — a minimalist Hebrew personal planner (PWA, Supabase).",
+  "type": "module",
+  "scripts": {
+    "start": "python3 -m http.server 5173",
+    "test": "node --test tests/*.test.js",
+    "typecheck": "tsc -p jsconfig.json",
+    "check": "npm run typecheck && npm test"
+  },
+  "devDependencies": {
+    "typescript": "^6.0.2"
+  }
+}
