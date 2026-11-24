@@ -77,17 +77,9 @@ function activityCard(store, inst, opt = {}) {
 
   // Single-day items can be dragged to another part of the day (see ui/drag.js).
   const dataset = inst.spanCount > 1 ? { color } : { color, drag: 'activity', key: inst.key };
-  return h('article', { class: 'card' + (inst.completed ? ' is-done' : '') + (a.priority === 3 ? ' is-important' : ''), dataset },
-    h('button', {
-      type: 'button', class: 'check', role: 'checkbox', 'aria-checked': String(inst.completed),
-      'aria-label': `${a.title}: ${inst.completed ? 'בוצע' : 'לא בוצע'}`,
-      onClick: (e) => {
-        haptic();
-        const el = /** @type {HTMLElement} */ (e.currentTarget);
-        el.classList.add('pop');
-        store.toggleActivity(inst);
-      },
-    }, icon('check', 15)),
+  // Activities are for arranging the day, not for ticking off: no completion control here
+  // (checkboxes belong to tasks).
+  return h('article', { class: 'card' + (a.priority === 3 ? ' is-important' : ''), dataset },
     h('button', { type: 'button', class: 'card-main', onClick: () => openActivitySheet(store, inst) },
       h('span', { class: 'card-title' }, a.priority === 3 ? icon('flag', 15) : null, a.title),
       meta.length ? h('span', { class: 'card-meta' }, meta) : null));
@@ -237,7 +229,7 @@ export function weekView(store) {
         const p = i.a.all_day || i.spanCount > 1 ? null : periodById(i.a.period || '');
         const when = i.a.start_time ? ltr(formatTime(i.a.start_time)) : p ? p.label : i.spanCount > 1 ? `${i.spanIndex}/${i.spanCount}` : 'כל היום';
         return h('button', {
-          type: 'button', class: 'agenda-row' + (i.completed ? ' is-done' : ''), dataset: { color: store.colorOf(i.a) },
+          type: 'button', class: 'agenda-row', dataset: { color: store.colorOf(i.a) },
           onClick: () => openActivitySheet(store, i),
         },
         h('span', { class: 'dot' }),
@@ -283,7 +275,7 @@ export function monthView(store) {
       onClick: () => store.openDay(k),
     },
     h('span', { class: 'mnum' }, String(Number(k.slice(8)))),
-    h('span', { class: 'mitems' }, insts.slice(0, 3).map((i) => h('span', { class: 'mitem' + (i.completed ? ' is-done' : ''), dataset: { color: store.colorOf(i.a) } }, h('span', { class: 'mitem-text' }, i.a.title)))),
+    h('span', { class: 'mitems' }, insts.slice(0, 3).map((i) => h('span', { class: 'mitem', dataset: { color: store.colorOf(i.a) } }, h('span', { class: 'mitem-text' }, i.a.title)))),
     n > 3 ? h('span', { class: 'mmore' }, ltr(`+${n - 3}`)) : null,
     !insts.length && tasks.length ? h('span', { class: 'mitems' }, h('span', { class: 'mitem is-task' }, h('span', { class: 'mitem-text' }, tasks[0].title))) : null);
   });

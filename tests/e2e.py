@@ -291,13 +291,15 @@ with sync_playwright() as p:
         page.locator('.nav-btns').get_by_role('button', name='היום', exact=True).click()
     _()
 
-    @step('mark complete and undo complete')
+    @step('activity cards have no completion control (tasks keep theirs)')
     def _():
-        chk = page.locator('.period[data-period="morning"] .card .check')
-        chk.click()
-        expect(page.locator('.period[data-period="morning"] .card')).to_have_class('card is-done')
-        page.locator('.period[data-period="morning"] .card .check').click()
-        expect(page.locator('.period[data-period="morning"] .card')).not_to_have_class('card is-done')
+        expect(page.locator('.card .check')).to_have_count(0)
+        expect(page.locator('.card [role="checkbox"]')).to_have_count(0)
+        page.locator('.period[data-period="morning"] .card-main').click()
+        expect(sheet(page).get_by_role('button', name='סימון כבוצע', exact=True)).to_have_count(0)
+        expect(sheet(page).locator('.quick-btn')).to_have_count(2)
+        sheet(page).get_by_role('button', name='סגירה', exact=True).click()
+        expect(page.locator('.sheet-wrap')).to_have_count(0)
     _()
 
     @step('edit an activity and change its period')
@@ -361,10 +363,12 @@ with sync_playwright() as p:
 
     @step('failed save rolls back and shows an error')
     def _():
+        before = page.locator('.period[data-period="evening"] .card').count()
+        page.locator('.period[data-period="evening"] .card-main').first.click()
         page.evaluate('window.__mockFail = true')
-        page.locator('.period[data-period="evening"] .card .check').click()
+        sheet(page).get_by_role('button', name='שכפול הפעילות', exact=True).click()
         expect(page.locator('.toast.is-error')).to_contain_text('אין חיבור לאינטרנט')
-        expect(page.locator('.period[data-period="evening"] .card')).not_to_have_class('card is-done')
+        expect(page.locator('.period[data-period="evening"] .card')).to_have_count(before)
     _()
 
     @step('tasks: quick add, complete, done filter')

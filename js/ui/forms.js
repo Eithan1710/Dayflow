@@ -353,10 +353,6 @@ export function openActivitySheet(store, inst) {
 
   const tomorrow = addDays(inst.date, 1);
   const quick = h('div', { class: 'quick-actions' },
-    quickBtn(inst.completed ? 'לא בוצע' : 'בוצע', inst.completed ? 'x' : 'check', () => {
-      store.toggleActivity(inst);
-      sheet.close();
-    }, inst.completed ? 'סימון כלא בוצע' : 'סימון כבוצע'),
     quickBtn('למחר', 'arrowLeft', () => {
       store.moveInstance(inst, tomorrow);
       sheet.close();
