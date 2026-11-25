@@ -842,6 +842,19 @@ html.is-dragging .period.is-drop-target .node {
 }
 html.is-dragging .period-head.is-action:active { background: transparent; }
 @media (min-width: 960px) { [data-drag] .card-main, [data-drag] .task-main { cursor: grab; } }
+.drop-line {
+  position: fixed; left: 0; top: 0; z-index: 69;
+  height: 3px; border-radius: 3px;
+  background: var(--accent);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 18%, transparent);
+  pointer-events: none;
+}
+.drop-line::before {
+  content: ""; position: absolute; inset-inline-start: -4px; top: -3.5px;
+  width: 10px; height: 10px; border-radius: 50%;
+  background: var(--accent);
+}
+.task-list.is-solo { padding: 0; }
 .tip {
   display: flex; align-items: center; gap: 8px;
   padding: 6px 6px 6px 12px; padding-inline-start: 12px; padding-inline-end: 4px;

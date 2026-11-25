@@ -1,4 +1,5 @@
-// Drag & drop of activities and tasks between parts of the day (day view).
+// Drag & drop of activities and tasks in the day view: into another part of the day,
+// or to a new position inside the same part (manual order).
 // Touch: long-press, then drag (a plain swipe still scrolls / changes day).
 // Mouse: press and move.
 import { STORAGE_PREFIX } from '../config.js';
@@ -26,7 +27,7 @@ export function attachDayDrag(main, store) {
   /** @type {{ el: HTMLElement, x0: number, y0: number, x: number, y: number, timer: number, mouse: boolean } | null} */
   let pending = null;
   /** @type {{ ghost: HTMLElement, source: HTMLElement, kind: string, id: string, offX: number, offY: number,
-   *           x: number, y: number, target: string|null, raf: number } | null} */
+   *           x: number, y: number, target: string|null, index: number, line: HTMLElement, raf: number } | null} */
   let drag = null;
   let suppressClick = false;
 
@@ -58,12 +59,16 @@ export function attachDayDrag(main, store) {
     document.body.appendChild(ghost);
     el.classList.add('is-drag-source');
     root.classList.add('is-dragging');
+    const line = document.createElement('div');
+    line.className = 'drop-line';
+    line.hidden = true;
+    document.body.appendChild(line);
     drag = {
       ghost, source: el,
       kind: /** @type {string} */ (el.dataset.drag),
       id: /** @type {string} */ (el.dataset.drag === 'activity' ? el.dataset.key : el.dataset.id),
       offX: pending.x - rect.left, offY: pending.y - rect.top,
-      x: pending.x, y: pending.y, target: null, raf: 0,
+      x: pending.x, y: pending.y, target: null, index: 0, line, raf: 0,
     };
     pending = null;
     suppressClick = true;
@@ -90,6 +95,37 @@ export function attachDayDrag(main, store) {
       if (/** @type {HTMLElement} */ (p).dataset.period !== id) p.classList.remove('is-drop-target');
     });
     if (period) period.classList.add('is-drop-target');
+    placeLine(period, y);
+  }
+
+  /** @param {HTMLElement} el */
+  function isSource(el) {
+    if (!drag || el.dataset.drag !== drag.kind) return false;
+    return drag.kind === 'activity' ? el.dataset.key === drag.id : el.dataset.id === drag.id;
+  }
+
+  /** Works out where in the period the item would land and draws the guide line there. */
+  function placeLine(period, y) {
+    if (!drag) return;
+    const line = drag.line;
+    if (!period) { line.hidden = true; return; }
+    const items = /** @type {HTMLElement[]} */ ([...period.querySelectorAll('.stack [data-drag]')]).filter((el) => !isSource(el));
+    let index = 0;
+    for (const el of items) {
+      const r = el.getBoundingClientRect();
+      if (y > r.top + r.height / 2) index++;
+    }
+    drag.index = index;
+    const stack = /** @type {HTMLElement|null} */ (period.querySelector('.stack'));
+    const box = (stack || period).getBoundingClientRect();
+    const width = box.width - 52; // leave the timeline column free
+    let lineY;
+    if (!items.length) lineY = /** @type {HTMLElement} */ (period.querySelector('.period-head')).getBoundingClientRect().bottom + 2;
+    else if (index === 0) lineY = items[0].getBoundingClientRect().top - 5;
+    else lineY = items[index - 1].getBoundingClientRect().bottom + 4;
+    line.style.width = width + 'px';
+    line.style.transform = `translate3d(${box.left}px, ${lineY - 1.5}px, 0)`;
+    line.hidden = false;
   }
 
   /** Scrolls the page while the finger is near the top/bottom edge. */
@@ -113,6 +149,7 @@ export function attachDayDrag(main, store) {
     drag = null;
     cancelAnimationFrame(d.raf);
     d.ghost.remove();
+    d.line.remove();
     d.source.classList.remove('is-drag-source');
     main.querySelectorAll('.is-drag-source').forEach((e) => e.classList.remove('is-drag-source'));
     main.querySelectorAll('.period.is-drop-target').forEach((p) => p.classList.remove('is-drop-target'));
@@ -130,15 +167,16 @@ export function attachDayDrag(main, store) {
     if (d.kind === 'task') {
       const t = store.state.tasks.get(d.id);
       if (!t) return;
-      const undo = store.moveTaskToPeriod(t, date, period);
-      if (undo) toast(`המשימה הועברה ${TO_PERIOD[period]}`, { action: 'ביטול', onAction: undo });
+      const r = store.arrangePeriod(date, period, { kind: 'task', id: t.id }, d.index);
+      if (r.periodChanged && r.undo) toast(`המשימה הועברה ${TO_PERIOD[period]}`, { action: 'ביטול', onAction: r.undo });
       return;
     }
 
     const inst = store.instancesOn(date).find((i) => i.key === d.id);
-    if (!inst || (!inst.a.all_day && inst.a.period === period)) return;
+    if (!inst) return;
+    const periodChanges = inst.a.all_day || inst.a.period !== period;
     let scope = 'all';
-    if (inst.recurring) {
+    if (inst.recurring && periodChanges) {
       const r = await choose({
         title: 'פעילות חוזרת',
         message: 'להעביר רק את המופע של היום או את כל הסדרה?',
@@ -150,8 +188,8 @@ export function attachDayDrag(main, store) {
       if (!r) return;
       scope = r;
     }
-    const res = store.moveToPeriod(inst, period, scope);
-    if (!res) return;
+    const res = store.arrangePeriod(date, period, { kind: 'activity', id: inst.a.id, inst }, d.index, /** @type {any} */ (scope));
+    if (!res.changed || !res.periodChanged) return; // a reorder speaks for itself
     const text = `${inst.a.title} הועבר ${TO_PERIOD[period]}` + (res.timeCleared ? '. השעה המדויקת הוסרה' : '');
     toast(text, res.undo ? { action: 'ביטול', onAction: res.undo } : {});
   }

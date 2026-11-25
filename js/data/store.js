@@ -19,6 +19,14 @@ import { AppError, newId } from './schema.js';
  * @property {number} spanIndex   1-based day within a multi-day activity
  * @property {number} spanCount
  */
+/**
+ * @typedef {Object} PeriodItem
+ * @property {'activity'|'task'} kind
+ * @property {string} id            activity id or task id
+ * @property {Instance|null} inst
+ * @property {any} t
+ * @property {number|null} order
+ */
 
 export const ERROR_TEXT = {
   offline: 'אין חיבור לאינטרנט, השינוי לא נשמר.',
@@ -318,7 +326,28 @@ export function createStore(backend, hooks) {
         looseTasks.push(t); // due today or overdue: surface on today's page
       }
     }
-    return { spanning, byPeriod, tasksByPeriod, looseTasks };
+    /** @type {Record<string, PeriodItem[]>} */
+    const itemsByPeriod = Object.fromEntries(PERIOD_IDS.map((p) => [p, orderItems(byPeriod[p], tasksByPeriod[p])]));
+    return { spanning, byPeriod, tasksByPeriod, looseTasks, itemsByPeriod };
+  }
+
+  /**
+   * One list per part of the day: activities and tasks together.
+   * Items the user placed by hand (period_order) come first in that order; the rest follow
+   * automatically (timed activities, then untimed, then tasks).
+   * @param {Instance[]} insts @param {any[]} tasks @returns {PeriodItem[]}
+   */
+  function orderItems(insts, tasks) {
+    const tasksSorted = [...tasks].sort((x, y) => String(x.created_at || '').localeCompare(String(y.created_at || '')));
+    /** @type {PeriodItem[]} */
+    const items = [
+      ...insts.map((inst) => ({ kind: /** @type {const} */ ('activity'), id: inst.a.id, inst, t: null, order: inst.a.period_order ?? null })),
+      ...tasksSorted.map((t) => ({ kind: /** @type {const} */ ('task'), id: t.id, inst: null, t, order: t.period_order ?? null })),
+    ];
+    return items
+      .map((it, i) => ({ it, i }))
+      .sort((x, y) => (x.it.order ?? Infinity) - (y.it.order ?? Infinity) || x.i - y.i)
+      .map((x) => x.it);
   }
 
   function category(id) {
@@ -353,7 +382,7 @@ export function createStore(backend, hooks) {
     const base = inst.a;
     const copy = {
       ...base, ...patch,
-      id: newId(),
+      id: patch.id || newId(),
       repeat_freq: null, repeat_interval: 1, repeat_weekdays: null, repeat_until: null,
       end_date: null,
       completed: patch.completed ?? inst.completed,
@@ -419,6 +448,82 @@ export function createStore(backend, hooks) {
     const before = { period: a.period, all_day: !!a.all_day, start_time: a.start_time || null, end_time: a.end_time || null };
     void updateActivity(a.id, patch);
     return { timeCleared, undo: () => updateActivity(a.id, before) };
+  }
+
+  /**
+   * Drag & drop result inside the day view: puts `moved` into `period` at position `index`
+   * and stores the resulting manual order of that part of the day.
+   * @param {string} date
+   * @param {string} period
+   * @param {{ kind: 'activity'|'task', id: string, inst?: Instance }} moved
+   * @param {number} index  position among the other items of the period
+   * @param {'this'|'all'} [scope]  for recurring activities that change period
+   * @returns {{ changed: boolean, periodChanged: boolean, timeCleared: boolean, undo: (() => void) | null }}
+   */
+  function arrangePeriod(date, period, moved, index, scope = 'all') {
+    const others = dayData(date).itemsByPeriod[period].filter((e) => !(e.kind === moved.kind && e.id === moved.id));
+    const order = others.map((e) => ({ kind: e.kind, id: e.id }));
+    order.splice(Math.max(0, Math.min(index, order.length)), 0, { kind: moved.kind, id: moved.id });
+    const desired = (i) => (i + 1) * 1000;
+    const movedPos = order.findIndex((e) => e.kind === moved.kind && e.id === moved.id);
+
+    /** @type {Map<string, Record<string, any>>} */
+    const changes = new Map();
+    const addChange = (kind, id, patch) => changes.set(kind + ':' + id, { ...(changes.get(kind + ':' + id) || {}), ...patch });
+    let periodChanged = false, timeCleared = false, detached = false;
+
+    if (moved.kind === 'activity') {
+      const inst = /** @type {Instance} */ (moved.inst);
+      const a = inst.a;
+      if (a.all_day || a.period !== period) {
+        periodChanged = true;
+        const keepTime = !!a.start_time && periodForTime(a.start_time) === period;
+        timeCleared = !!a.start_time && !keepTime;
+        const patch = { period, all_day: false, start_time: keepTime ? a.start_time : null, end_time: keepTime ? a.end_time : null };
+        if (inst.recurring && scope === 'this') {
+          const id = newId();
+          void detachOccurrence(inst, { ...patch, id, period_order: desired(movedPos) });
+          order[movedPos] = { kind: 'activity', id };
+          detached = true;
+        } else addChange('activity', a.id, patch);
+      }
+    } else {
+      const t = state.tasks.get(moved.id);
+      if (t && (t.scheduled_date !== date || t.period !== period)) {
+        periodChanged = true;
+        addChange('task', t.id, { scheduled_date: date, period });
+      }
+    }
+
+    order.forEach((e, i) => {
+      if (detached && i === movedPos) return;
+      const cur = e.kind === 'activity' ? state.activities.get(e.id) : state.tasks.get(e.id);
+      if (cur && (cur.period_order ?? null) !== desired(i)) addChange(e.kind, e.id, { period_order: desired(i) });
+    });
+
+    // Pure reorder that ends where it started: nothing to save.
+    const unchanged = !periodChanged && order.every((e, i) => {
+      const before = dayData(date).itemsByPeriod[period][i];
+      return before && before.kind === e.kind && before.id === e.id;
+    });
+    if (unchanged) return { changed: false, periodChanged: false, timeCleared: false, undo: null };
+
+    /** @type {(() => any)[]} */
+    const undos = [];
+    for (const [key, patch] of changes) {
+      const [kind, id] = key.split(':');
+      const cur = kind === 'activity' ? state.activities.get(id) : state.tasks.get(id);
+      if (!cur) continue;
+      const before = Object.fromEntries(Object.keys(patch).map((k) => [k, cur[k] ?? null]));
+      if (kind === 'activity') {
+        void updateActivity(id, patch);
+        undos.push(() => updateActivity(id, before));
+      } else {
+        void updateTask(id, patch);
+        undos.push(() => updateTask(id, before));
+      }
+    }
+    return { changed: true, periodChanged, timeCleared, undo: detached ? null : () => undos.forEach((u) => u()) };
   }
 
   /** Puts a task on `date` in `period` (drag & drop). Returns an undo function, or null if unchanged. */
@@ -555,7 +660,7 @@ export function createStore(backend, hooks) {
     init, signIn, signOut, loadAll, refresh, ensureLoaded,
     setDate, setView, setTab, step, goToday, openDay,
     instancesOn, dayData, category, colorOf,
-    createActivity, updateActivity, detachOccurrence, toggleActivity, moveInstance, moveToPeriod, duplicateActivity, deleteActivity,
+    createActivity, updateActivity, detachOccurrence, toggleActivity, moveInstance, moveToPeriod, arrangePeriod, duplicateActivity, deleteActivity,
     createTask, updateTask, toggleTask, deleteTask, moveTaskToPeriod,
     saveCategory, deleteCategory, setTheme, changePassword,
     get pending() { return pending; },

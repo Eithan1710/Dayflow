@@ -143,9 +143,8 @@ export function dayView(store) {
   }
 
   const periods = PERIODS.map((p, idx) => {
-    const items = data.byPeriod[p.id];
-    const tasks = data.tasksByPeriod[p.id];
-    const empty = !items.length && !tasks.length;
+    const entries = data.itemsByPeriod[p.id];
+    const empty = !entries.length;
     const add = () => { haptic(); openCreateSheet(store, { date: k, period: p.id }); };
     const state = p.id === nowPeriod ? ' is-now' : idx < pastIdx ? ' is-past' : '';
     const head = empty
@@ -164,8 +163,10 @@ export function dayView(store) {
     return h('li', { class: 'period' + (empty ? ' is-empty' : '') + state, dataset: { period: p.id } },
       head,
       empty ? null : h('div', { class: 'stack' },
-        items.map((i) => activityCard(store, i)),
-        tasks.length ? h('div', { class: 'task-list' }, tasks.map((t) => taskRow(store, t, { showDates: false }))) : null));
+        // Activities and tasks share one order (drag to rearrange, see ui/drag.js).
+        entries.map((e) => (e.kind === 'activity'
+          ? activityCard(store, /** @type {any} */ (e.inst))
+          : h('div', { class: 'task-list is-solo' }, taskRow(store, e.t, { showDates: false }))))));
   });
 
   const draggable = PERIODS.some((p) => data.byPeriod[p.id].length || data.tasksByPeriod[p.id].length) || data.looseTasks.length;

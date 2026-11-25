@@ -21,6 +21,7 @@ import { DAY_LETTERS, DAY_NAMES, dayDiff, parseKey, startOfWeek, weekday } from 
  * @property {number} [repeat_interval]
  * @property {number[]|null} [repeat_weekdays]
  * @property {string|null} [repeat_until]
+ * @property {number|null} [period_order]  manual position inside its part of the day
  * @property {string} [created_at]
  */
 

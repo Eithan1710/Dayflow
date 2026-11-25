@@ -260,3 +260,61 @@ test('drag a task into a period schedules it on that day', async () => {
   await undo();
   assert.equal(store.state.tasks.get(id).scheduled_date, null);
 });
+
+test('reorder inside a part of the day: activities and tasks share one order', async () => {
+  const gym = store.createActivity(draft({ title: 'חדר כושר', period: 'late_morning' }));
+  const pkg = store.createTask({ title: 'לאסוף חבילה', scheduled_date: '2026-11-23', period: 'late_morning' });
+  await flush();
+  const titles = () => store.dayData('2026-11-23').itemsByPeriod.late_morning.map((e) => (e.kind === 'activity' ? e.inst.a.title : e.t.title));
+  assert.deepEqual(titles(), ['חדר כושר', 'לאסוף חבילה']); // automatic: activities first
+
+  const calls = backend.calls.length;
+  assert.equal(store.arrangePeriod('2026-11-23', 'late_morning', { kind: 'task', id: pkg }, 1).changed, false); // same spot
+  assert.equal(backend.calls.length, calls);
+
+  const r = store.arrangePeriod('2026-11-23', 'late_morning', { kind: 'task', id: pkg }, 0);
+  await flush();
+  assert.equal(r.changed, true);
+  assert.equal(r.periodChanged, false);
+  assert.deepEqual(titles(), ['לאסוף חבילה', 'חדר כושר']);
+  assert.equal(backend.db.tasks.get(pkg).period_order, 1000);
+  assert.equal(backend.db.activities.get(gym).period_order, 2000);
+
+  // a new item without a manual position goes to the end
+  store.createActivity(draft({ title: 'קפה', period: 'late_morning', start_time: '09:30' }));
+  await flush();
+  assert.deepEqual(titles(), ['לאסוף חבילה', 'חדר כושר', 'קפה']);
+
+  r.undo();
+  await flush();
+  assert.equal(store.state.tasks.get(pkg).period_order, null);
+});
+
+test('drag from another part of the day to a specific position', async () => {
+  store.createActivity(draft({ title: 'א', period: 'evening' }));
+  store.createActivity(draft({ title: 'ב', period: 'evening' }));
+  const moving = store.createActivity(draft({ title: 'נכנס', period: 'morning', start_time: '07:00' }));
+  await flush();
+  const inst = store.instancesOn('2026-11-23').find((i) => i.a.id === moving);
+  const r = store.arrangePeriod('2026-11-23', 'evening', { kind: 'activity', id: moving, inst }, 1);
+  await flush();
+  assert.equal(r.periodChanged, true);
+  assert.equal(r.timeCleared, true);
+  assert.deepEqual(store.dayData('2026-11-23').itemsByPeriod.evening.map((e) => e.inst.a.title), ['א', 'נכנס', 'ב']);
+  assert.equal(backend.db.activities.get(moving).period, 'evening');
+  r.undo();
+  await flush();
+  assert.equal(store.state.activities.get(moving).period, 'morning');
+  assert.equal(store.state.activities.get(moving).start_time, '07:00');
+});
+
+test('recurring occurrence dragged to another period "this one only" lands at the chosen spot', async () => {
+  store.createActivity(draft({ title: 'קיים', period: 'night' }));
+  const series = store.createActivity(draft({ title: 'ריצה', period: 'morning', repeat_freq: 'daily' }));
+  await flush();
+  const inst = store.instancesOn('2026-11-23').find((i) => i.a.id === series);
+  store.arrangePeriod('2026-11-23', 'night', { kind: 'activity', id: series, inst }, 0, 'this');
+  await flush();
+  assert.deepEqual(store.dayData('2026-11-23').itemsByPeriod.night.map((e) => e.inst.a.title), ['ריצה', 'קיים']);
+  assert.equal(store.dayData('2026-11-24').itemsByPeriod.morning.length, 1); // series untouched
+});

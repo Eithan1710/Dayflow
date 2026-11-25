@@ -2,11 +2,11 @@
 export const ACTIVITY_COLUMNS = [
   'id', 'category_id', 'title', 'description', 'start_date', 'end_date', 'period', 'all_day',
   'start_time', 'end_time', 'color', 'location', 'priority', 'completed', 'completed_at',
-  'repeat_freq', 'repeat_interval', 'repeat_weekdays', 'repeat_until',
+  'repeat_freq', 'repeat_interval', 'repeat_weekdays', 'repeat_until', 'period_order',
 ];
 export const TASK_COLUMNS = [
   'id', 'category_id', 'title', 'description', 'due_date', 'scheduled_date', 'period',
-  'priority', 'completed', 'completed_at', 'sort_order',
+  'priority', 'completed', 'completed_at', 'sort_order', 'period_order',
 ];
 export const CATEGORY_COLUMNS = ['id', 'name', 'color', 'sort_order'];
 export const OVERRIDE_COLUMNS = ['activity_id', 'occurrence_date', 'completed', 'cancelled'];

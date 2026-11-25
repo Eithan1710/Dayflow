@@ -27,8 +27,8 @@ def step(name):
                 results.append((name, 'ok', ''))
                 print('ok  ', name)
             except Exception as e:  # noqa
-                results.append((name, 'FAIL', str(e).splitlines()[0][:300]))
-                print('FAIL', name, '->', str(e).splitlines()[0][:300])
+                results.append((name, 'FAIL', ' | '.join(str(e).splitlines()[:12])[:1200]))
+                print('FAIL', name, '->', ' | '.join(str(e).splitlines()[:12])[:1200])
         return run
     return deco
 
@@ -55,13 +55,13 @@ def swipe(page, dx):
     }""", dx)
 
 
-def touch_drag(page, src_selector, dst_selector, hold_ms=450):
+def touch_drag(page, src_selector, dst_selector, hold_ms=450, dst_frac=0.5):
     """Long-press on src, then drag to the centre of dst, using real TouchEvents."""
     page.locator(src_selector).first.evaluate("el => el.scrollIntoView({ block: 'center' })")
     src = page.locator(src_selector).first.bounding_box()
     dst = page.locator(dst_selector).first.bounding_box()
     sx, sy = src['x'] + src['width'] / 2, src['y'] + src['height'] / 2
-    dx, dy = dst['x'] + dst['width'] / 2, dst['y'] + dst['height'] / 2
+    dx, dy = dst['x'] + dst['width'] / 2, dst['y'] + dst['height'] * dst_frac
     fire = """([type, x, y]) => {
       window.__dragTarget ||= document.elementFromPoint(x, y);
       const el = window.__dragTarget;
@@ -233,6 +233,42 @@ with sync_playwright() as p:
         expect(page.locator('.drag-ghost')).to_have_count(0)
         page.locator('.toast-action').click()
         expect(page.locator('.period[data-period="morning"] .card-title')).to_have_text('עבודה על הפרויקט')
+    _()
+
+    @step('reorder inside a part of the day (mouse): package before gym, survives reload')
+    def _():
+        for title in ['חדר כושר', 'לאסוף חבילה']:
+            head = page.locator('.period[data-period="afternoon"] .period-head')
+            add = page.locator('.period[data-period="afternoon"] .period-add')
+            (add if page.locator('.period[data-period="afternoon"] .card').count() else head).click()
+            page.keyboard.type(title)
+            sheet(page).get_by_role('button', name='הוספה', exact=True).click()
+            expect(page.locator('.sheet-wrap')).to_have_count(0)
+        cards = page.locator('.period[data-period="afternoon"] .card-title')
+        expect(cards).to_have_text(['חדר כושר', 'לאסוף חבילה'])
+        src_l = page.locator('.period[data-period="afternoon"] .card-main').nth(1)
+        src_l.evaluate("el => el.scrollIntoView({ block: 'center' })")
+        src = src_l.bounding_box()
+        first = page.locator('.period[data-period="afternoon"] .card').first.bounding_box()
+        page.mouse.move(src['x'] + 60, src['y'] + 20)
+        page.mouse.down()
+        page.mouse.move(src['x'] + 60, src['y'] + 10, steps=3)
+        page.mouse.move(first['x'] + 60, first['y'] + 8, steps=8)
+        expect(page.locator('.drop-line')).to_be_visible()
+        shot(page, '16-reorder')
+        page.mouse.up()
+        expect(page.locator('.drop-line')).to_have_count(0)
+        expect(cards).to_have_text(['לאסוף חבילה', 'חדר כושר'])
+        expect(page.locator('.sheet-wrap')).to_have_count(0)
+        page.wait_for_function('window.__dayflow.pending === 0')
+        page.reload()
+        expect(page.locator('.period[data-period="afternoon"] .card-title')).to_have_text(['לאסוף חבילה', 'חדר כושר'])
+    _()
+
+    @step('reorder with touch long-press: gym back to the top')
+    def _():
+        touch_drag(page, '.period[data-period="afternoon"] .card:nth-of-type(2) .card-main', '.period[data-period="afternoon"] .card', dst_frac=0.25)
+        expect(page.locator('.period[data-period="afternoon"] .card-title')).to_have_text(['חדר כושר', 'לאסוף חבילה'])
     _()
 
     @step('all-day and multi-day activity')
